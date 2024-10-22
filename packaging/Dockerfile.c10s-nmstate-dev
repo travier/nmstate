@@ -1,6 +1,16 @@
 FROM quay.io/centos/centos:stream10-development
 
-RUN echo "2024-06-26" > /build_time
+RUN echo "2024-10-17" > /build_time
+
+# Add alter-baseos and alter-appstream repositories with lower priority
+COPY c10s-alter-baseos.repo \
+     /etc/yum.repos.d/c10s-alter-baseos.repo
+COPY c10s-alter-appstream.repo \
+     /etc/yum.repos.d/c10s-alter-appstream.repo
+
+RUN grep -q "^skip_if_unavailable=" /etc/dnf/dnf.conf && \
+    sed -i 's/^skip_if_unavailable=.*/skip_if_unavailable=True/' /etc/dnf/dnf.conf || \
+    echo "skip_if_unavailable=True" >> /etc/dnf/dnf.conf
 
 RUN dnf update -y && \
     dnf -y install dnf-plugins-core  && \
