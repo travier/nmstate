@@ -19,8 +19,10 @@ from .testlib import assertlib
 from .testlib import cmdlib
 from .testlib import iprule
 from .testlib.bridgelib import linux_bridge
+from .testlib.dummy import dummy_interface
 from .testlib.env import nm_minor_version
 from .testlib.genconf import gen_conf_apply
+from .testlib.iproutelib import ip_monitor_assert_stable_link_up
 from .testlib.route import assert_routes
 from .testlib.route import assert_routes_missing
 from .testlib.servicelib import disable_service
@@ -110,6 +112,12 @@ def clean_up_route_rule():
             DNS.KEY: {DNS.CONFIG: {}},
         },
     )
+
+
+@pytest.fixture(scope="function")
+def dummy0_up(test_env_setup):
+    with dummy_interface("dummy0") as ifstate:
+        yield ifstate
 
 
 @pytest.mark.tier1
@@ -2189,3 +2197,43 @@ def test_kernel_mode_static_route_and_remove(cleanup_veth1_kernel_mode):
     assert_routes_missing(
         desired_state[Route.KEY][Route.CONFIG], cur_state, nic="veth1"
     )
+
+
+# https://issues.redhat.com/browse/RHEL-64707
+# ip_monitor_assert_stable_link_up doesn't work with ethernet, use dummy
+@ip_monitor_assert_stable_link_up("dummy0")
+def test_apply_routes_twice_only_reapplies(dummy0_up):
+    dummy0_state = dummy0_up[Interface.KEY][0]
+    dummy0_state[Interface.IPV4] = ETH1_INTERFACE_STATE[Interface.IPV4]
+    dummy0_state[Interface.IPV6] = ETH1_INTERFACE_STATE[Interface.IPV6]
+    routes = [
+        {
+            Route.NEXT_HOP_INTERFACE: "dummy0",
+            Route.DESTINATION: IPV4_TEST_NET1,
+            Route.NEXT_HOP_ADDRESS: IPV4_EMPTY_ADDRESS,
+            Route.METRIC: 100,
+            Route.TABLE_ID: 254,
+        },
+        {
+            Route.NEXT_HOP_INTERFACE: "dummy0",
+            Route.DESTINATION: IPV6_TEST_NET1,
+            Route.NEXT_HOP_ADDRESS: IPV6_EMPTY_ADDRESS,
+            Route.METRIC: 100,
+            Route.TABLE_ID: 254,
+        },
+    ]
+    state = {
+        Interface.KEY: [dummy0_state],
+        Route.KEY: {Route.CONFIG: routes},
+    }
+    libnmstate.apply(state)
+
+    # Apply a second time to test that empty next-hop is treated
+    # correctly. Per issue RHEL-64707, the next-hop didn't match between the
+    # nmstate generated routes and those retrieved from NM, causing nmstate to
+    # incorrectly think that there were routes to remove.
+    # This caused deactivate & activate instead of reapply.
+    libnmstate.apply(state)
+
+    cur_state = libnmstate.show()
+    assert_routes(routes, cur_state)

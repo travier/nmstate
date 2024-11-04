@@ -6,6 +6,9 @@ use crate::{
     ip::is_ipv6_addr, InterfaceIpAddr, NmstateError, RouteEntry, RouteType,
 };
 
+const IPV4_EMPTY_NEXT_HOP: &str = "0.0.0.0";
+const IPV6_EMPTY_NEXT_HOP: &str = "::";
+
 pub(crate) fn gen_nm_ip_routes(
     routes: &[RouteEntry],
     is_ipv6: bool,
@@ -31,7 +34,15 @@ pub(crate) fn gen_nm_ip_routes(
             Some(i) => Some(i),
             None => None,
         };
-        nm_route.next_hop = route.next_hop_addr.as_ref().cloned();
+        // Empty next-hop is represented by 0.0.0.0 or :: in nmstate, but NM and
+        // the kernel just leave it undefined.
+        nm_route.next_hop = route
+            .next_hop_addr
+            .as_ref()
+            .filter(|&nh| {
+                nh != IPV4_EMPTY_NEXT_HOP && nh != IPV6_EMPTY_NEXT_HOP
+            })
+            .cloned();
         nm_route.src = route.source.as_ref().cloned();
         if let Some(weight) = route.weight {
             nm_route.weight = Some(weight as u32);

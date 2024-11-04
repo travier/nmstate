@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import libnmstate
 from libnmstate.schema import Interface
 from libnmstate.schema import InterfaceState
+from libnmstate.schema import InterfaceType
 
 from . import cmdlib
 
@@ -32,3 +33,30 @@ def nm_unmanaged_dummy(name):
         except Exception:
             # dummy1 might not became managed by NM, hence removal might fail
             cmdlib.exec_cmd(f"ip link del {name}".split())
+
+
+@contextmanager
+def dummy_interface(ifname):
+    desired_state = {
+        Interface.KEY: [
+            {
+                Interface.NAME: ifname,
+                Interface.TYPE: InterfaceType.DUMMY,
+                Interface.STATE: InterfaceState.UP,
+            }
+        ]
+    }
+    libnmstate.apply(desired_state)
+    try:
+        yield desired_state
+    finally:
+        libnmstate.apply(
+            {
+                Interface.KEY: [
+                    {
+                        Interface.NAME: ifname,
+                        Interface.STATE: InterfaceState.ABSENT,
+                    }
+                ]
+            }
+        )
