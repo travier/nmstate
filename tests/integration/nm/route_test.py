@@ -6,11 +6,19 @@ import pytest
 import yaml
 
 from ..testlib.cmdlib import exec_cmd
+from ..testlib.dummy import dummy_interface
 from ..testlib.env import nm_minor_version
+from ..testlib.iproutelib import ip_monitor_assert_stable_link_up
 from ..testlib.route import assert_routes
 
 from libnmstate.error import NmstateVerificationError
 
+IPV4_ADDRESS1 = "192.0.2.251"
+IPV4_TEST_NET1 = "203.0.113.0/24"
+IPV4_GATEWAY1 = "192.0.2.1"
+IPV6_ADDRESS1 = "2001:db8:1::1"
+IPV6_TEST_NET1 = "2001:db8:e::/64"
+IPV6_GATEWAY1 = "2001:db8:1::f"
 TEST_GATEAY4 = "192.0.2.1"
 TEST_GATEAY6 = "2001:db8:2::"
 
@@ -49,6 +57,12 @@ def eth1_with_old_gateway_format():
         check=True,
     )
     exec_cmd("nmcli c up eth1".split(), check=True)
+
+
+@pytest.fixture(scope="function")
+def dummy0_up(test_env_setup):
+    with dummy_interface("dummy0") as ifstate:
+        yield ifstate
 
 
 def test_preserve_old_gateway(eth1_with_old_gateway_format):
@@ -206,3 +220,57 @@ def test_route_rule_use_loopback_for_no_desired_iface(
         )[1].strip()
         == r"priority 1001 from 2001\:db8\:b\:\:/64 table 200"
     )
+
+
+@ip_monitor_assert_stable_link_up("dummy0")
+def test_reapply_with_ip_setting_table_and_metric_defaults(dummy0_up):
+    # We need nmcli to set route-table and route-metric in the initial state
+    ipv4 = {
+        "method": "manual",
+        "addresses": IPV4_ADDRESS1,
+        "route-table": 100,
+        "route-metric": 5,
+        "routes": f"{IPV4_TEST_NET1} {IPV4_GATEWAY1}",
+    }
+    ipv6 = {
+        "method": "manual",
+        "addresses": IPV6_ADDRESS1,
+        "route-table": 100,
+        "route-metric": 5,
+        "routes": f"{IPV6_TEST_NET1} {IPV6_GATEWAY1}",
+    }
+    nmcli_cmd = ["nmcli", "connection", "modify", "dummy0"]
+    for k, v in ipv4.items():
+        nmcli_cmd.extend([f"ipv4.{k}", f"{v}"])
+    for k, v in ipv6.items():
+        nmcli_cmd.extend([f"ipv6.{k}", f"{v}"])
+    exec_cmd(nmcli_cmd, check=True)
+    exec_cmd("nmcli device reapply dummy0".split(), check=True)
+
+    desired_state = yaml.load(
+        f"""---
+        interfaces:
+        - name: dummy0
+          state: up
+        routes:
+          config:
+          - destination: {IPV4_TEST_NET1}
+            next-hop-interface: dummy0
+            next-hop-address: {IPV4_GATEWAY1}
+            table-id: 100
+            metric: 5
+          - destination: {IPV6_TEST_NET1}
+            next-hop-interface: dummy0
+            next-hop-address: "{IPV6_GATEWAY1}"
+            table-id: 100
+            metric: 5
+        """,
+        Loader=yaml.SafeLoader,
+    )
+
+    # If the initial routes and the desired routes are considered the same, a
+    # reapply will happen and the test will pass. If not, the device will be
+    # put down and up again, failing the test.
+    libnmstate.apply(desired_state)
+    cur_state = libnmstate.show()
+    assert_routes(desired_state[Route.KEY][Route.CONFIG], cur_state)
