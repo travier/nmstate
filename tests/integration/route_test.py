@@ -2211,15 +2211,11 @@ def test_apply_routes_twice_only_reapplies(dummy0_up):
             Route.NEXT_HOP_INTERFACE: "dummy0",
             Route.DESTINATION: IPV4_TEST_NET1,
             Route.NEXT_HOP_ADDRESS: IPV4_EMPTY_ADDRESS,
-            Route.METRIC: 100,
-            Route.TABLE_ID: 254,
         },
         {
             Route.NEXT_HOP_INTERFACE: "dummy0",
             Route.DESTINATION: IPV6_TEST_NET1,
             Route.NEXT_HOP_ADDRESS: IPV6_EMPTY_ADDRESS,
-            Route.METRIC: 100,
-            Route.TABLE_ID: 254,
         },
     ]
     state = {
@@ -2228,8 +2224,8 @@ def test_apply_routes_twice_only_reapplies(dummy0_up):
     }
     libnmstate.apply(state)
 
-    # Apply a second time to test that empty next-hop is treated
-    # correctly. Per issue RHEL-64707, the next-hop didn't match between the
+    # Apply a second time to test that empty next-hop, metric and table are
+    # treated correctly. Per issue RHEL-64707, they didn't match between the
     # nmstate generated routes and those retrieved from NM, causing nmstate to
     # incorrectly think that there were routes to remove.
     # This caused deactivate & activate instead of reapply.

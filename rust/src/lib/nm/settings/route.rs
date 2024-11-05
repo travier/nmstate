@@ -8,6 +8,9 @@ use crate::{
 
 const IPV4_EMPTY_NEXT_HOP: &str = "0.0.0.0";
 const IPV6_EMPTY_NEXT_HOP: &str = "::";
+const IPV4_DEFAULT_METRIC: u32 = 0;
+const IPV6_DEFAULT_METRIC: u32 = 1024;
+const MAIN_TABLE_ID: u32 = 254;
 
 pub(crate) fn gen_nm_ip_routes(
     routes: &[RouteEntry],
@@ -24,15 +27,19 @@ pub(crate) fn gen_nm_ip_routes(
             nm_route.prefix = Some(ip_addr.prefix_length as u32);
             nm_route.dest = Some(ip_addr.ip.to_string());
         }
-        nm_route.metric = match route.metric {
-            Some(RouteEntry::USE_DEFAULT_METRIC) => Some(0),
-            Some(i) => Some(i as u32),
-            None => Some(0),
+        nm_route.metric = match (is_ipv6, route.metric) {
+            (true, None | Some(RouteEntry::USE_DEFAULT_METRIC)) => {
+                Some(IPV6_DEFAULT_METRIC)
+            }
+            (false, None | Some(RouteEntry::USE_DEFAULT_METRIC)) => {
+                Some(IPV4_DEFAULT_METRIC)
+            }
+            (_, Some(i)) => Some(i as u32),
         };
         nm_route.table = match route.table_id {
-            Some(RouteEntry::USE_DEFAULT_ROUTE_TABLE) => None,
+            Some(RouteEntry::USE_DEFAULT_ROUTE_TABLE) => Some(MAIN_TABLE_ID),
             Some(i) => Some(i),
-            None => None,
+            None => Some(MAIN_TABLE_ID),
         };
         // Empty next-hop is represented by 0.0.0.0 or :: in nmstate, but NM and
         // the kernel just leave it undefined.
