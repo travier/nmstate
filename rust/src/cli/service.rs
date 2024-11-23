@@ -10,8 +10,8 @@ use serde::Deserialize;
 
 use crate::{apply::apply_state, error::CliError, state::state_from_fd};
 
-const CONFIG_FILE_EXTENTION: &str = "yml";
-const APPLIED_FILE_EXTENTION: &str = "applied";
+const CONFIG_FILE_EXTENSION: &str = "yml";
+const APPLIED_FILE_EXTENSION: &str = "applied";
 const CONFIG_FILE_NAME: &str = "nmstate.conf";
 
 #[derive(Debug, Default, Deserialize)]
@@ -65,7 +65,7 @@ pub(crate) fn ncl_service(
     if state_files.is_empty() {
         log::info!(
             "No new nmstate config(end with .{}) found in config folder {}",
-            CONFIG_FILE_EXTENTION,
+            CONFIG_FILE_EXTENSION,
             folder
         );
         return Ok(String::new());
@@ -143,14 +143,14 @@ fn get_unapplied_state_files(
     let mut applied_files = HashSet::<FileContent>::new();
     for entry in folder.read_dir()? {
         let file = entry?.path();
-        if file.extension() == Some(OsStr::new(CONFIG_FILE_EXTENTION)) {
+        if file.extension() == Some(OsStr::new(CONFIG_FILE_EXTENSION)) {
             let content = fs::read_to_string(&file)?;
             yml_files.insert(FileContent::new(
                 folder.join(file).with_extension(""),
                 content,
             ));
         } else if keep_state_file_after_apply
-            && file.extension() == Some(OsStr::new(APPLIED_FILE_EXTENTION))
+            && file.extension() == Some(OsStr::new(APPLIED_FILE_EXTENSION))
         {
             let content = fs::read_to_string(&file)?;
             applied_files.insert(FileContent::new(
@@ -164,7 +164,7 @@ fn get_unapplied_state_files(
         .cloned()
         .map(|f| {
             FileContent::new(
-                f.path.with_extension(CONFIG_FILE_EXTENTION),
+                f.path.with_extension(CONFIG_FILE_EXTENSION),
                 f.content,
             )
         })
@@ -178,7 +178,7 @@ pub(crate) fn write_content(
     file_path: &Path,
     content: &str,
 ) -> Result<(), CliError> {
-    let applied_file_path = file_path.with_extension(APPLIED_FILE_EXTENTION);
+    let applied_file_path = file_path.with_extension(APPLIED_FILE_EXTENSION);
     fs::write(&applied_file_path, content)?;
     log::info!(
         "Content for config {} stored at {}",
@@ -209,7 +209,7 @@ fn load_config(base_cfg_folder: &str) -> Result<Config, CliError> {
 }
 
 fn relocate_file(file_path: &Path) -> Result<(), CliError> {
-    let new_path = file_path.with_extension(APPLIED_FILE_EXTENTION);
+    let new_path = file_path.with_extension(APPLIED_FILE_EXTENSION);
     std::fs::rename(file_path, &new_path)?;
 
     log::info!(
