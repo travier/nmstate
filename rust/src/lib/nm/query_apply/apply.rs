@@ -460,20 +460,11 @@ fn gen_nm_conn_need_to_deactivate_first(
 }
 
 fn check_nm_version(nm_api: &NmApi) {
-    if let Ok(versions) = nm_api.version().map(|ver_str| {
-        ver_str
-            .split('.')
-            .map(|v| v.parse::<i32>().unwrap_or_default())
-            .collect::<Vec<i32>>()
-    }) {
-        if let (Some(major), Some(minor)) = (versions.first(), versions.get(1))
-        {
-            if *major < 1 || *minor < 40 {
-                log::warn!(
-                    "Unsupported NetworkManager version {major}.{minor}, \
-                    expecting >= 1.40"
-                );
-            }
+    if let Ok(ver) = nm_api.version() {
+        if ver.major < 1 || ver.minor < 40 {
+            log::warn!(
+                "Unsupported NetworkManager version {ver}, expecting >= 1.40"
+            );
         }
     }
 }

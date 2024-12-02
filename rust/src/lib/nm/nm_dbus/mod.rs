@@ -51,7 +51,7 @@ pub use self::lldp::{
     NmLldpNeighborMgmtAddr,
 };
 #[cfg(feature = "query_apply")]
-pub use self::nm_api::NmApi;
+pub use self::nm_api::{NmApi, NmVersion, NmVersionInfo};
 
 pub(crate) use self::convert::ToDbusValue;
 #[cfg(feature = "gen_conf")]
