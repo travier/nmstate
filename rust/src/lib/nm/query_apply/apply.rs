@@ -6,7 +6,7 @@ use super::super::{
     device::create_index_for_nm_devs,
     dns::{store_dns_config_to_iface, store_dns_search_or_option_to_iface},
     error::nm_error_to_nmstate,
-    nm_dbus::{NmApi, NmConnection, NmIfaceType},
+    nm_dbus::{NmApi, NmConnection, NmIfaceType, NmVersion, NmVersionInfo},
     profile::{perpare_nm_conns, PerparedNmConnections},
     query_apply::{
         activate_nm_profiles, create_index_for_nm_conns_by_name_type,
@@ -42,8 +42,9 @@ pub(crate) async fn nm_apply(
     timeout: u32,
 ) -> Result<(), NmstateError> {
     let mut nm_api = NmApi::new().map_err(nm_error_to_nmstate)?;
+    let mut nm_route_remove_needs_deactivate = true;
 
-    check_nm_version(&nm_api);
+    check_nm_version(&nm_api, &mut nm_route_remove_needs_deactivate);
 
     nm_api.set_checkpoint(checkpoint, timeout);
     nm_api.set_checkpoint_auto_refresh(true);
@@ -154,6 +155,7 @@ pub(crate) async fn nm_apply(
         &merged_state.interfaces,
         nm_conns_to_activate.as_slice(),
         activated_nm_conns.as_slice(),
+        nm_route_remove_needs_deactivate,
     );
     deactivate_nm_profiles(
         &mut nm_api,
@@ -401,8 +403,11 @@ fn delete_orphan_ports(
     Ok(())
 }
 
-// * NM has problem on remove routes, we need to deactivate it first
+// * NM < 1.52 had problem on remove routes, we needed to deactivate it first.
+//  On patched NM, we can just reapply.
 //  https://bugzilla.redhat.com/1837254
+//  https://issues.redhat.com/browse/RHEL-66262
+//  https://issues.redhat.com/browse/RHEL-67324
 // * NM cannot change VRF table ID, so we deactivate first
 // * VLAN config changed.
 // * Veth peer changed.
@@ -415,6 +420,7 @@ fn gen_nm_conn_need_to_deactivate_first(
     merged_iface: &MergedInterfaces,
     nm_conns_to_activate: &[NmConnection],
     activated_nm_conns: &[&NmConnection],
+    remove_routes_need_deactivate: bool,
 ) -> Vec<NmConnection> {
     let mut ret: Vec<NmConnection> = Vec::new();
 
@@ -434,7 +440,8 @@ fn gen_nm_conn_need_to_deactivate_first(
                     }
                 })
             {
-                if is_route_removed(nm_conn, activated_nm_con)
+                if (remove_routes_need_deactivate
+                    && is_route_removed(nm_conn, activated_nm_con))
                     || is_vrf_table_id_changed(nm_conn, activated_nm_con)
                     || is_vlan_changed(nm_conn, activated_nm_con)
                     || is_vxlan_changed(nm_conn, activated_nm_con)
@@ -459,13 +466,27 @@ fn gen_nm_conn_need_to_deactivate_first(
     ret
 }
 
-fn check_nm_version(nm_api: &NmApi) {
-    if let Ok(ver) = nm_api.version() {
-        if ver.major < 1 || ver.minor < 40 {
+fn check_nm_version(nm_api: &NmApi, route_remove_needs_deactivate: &mut bool) {
+    let version = if let Ok(ver_info) = nm_api.version_info() {
+        *route_remove_needs_deactivate = !ver_info
+            .has_capability(NmVersionInfo::CAPABILITY_SYNC_ROUTE_WITH_TABLE);
+        Ok(ver_info.version())
+    } else {
+        // VersionInfo was added to NM 1.42. As we support 1.40+, fallback to
+        // parsing from Version string if VersionInfo is not available.
+        *route_remove_needs_deactivate = true;
+        nm_api.version()
+    };
+
+    let min = NmVersion::new(1, 40, 0);
+    if let Ok(version) = version {
+        if version < min {
             log::warn!(
-                "Unsupported NetworkManager version {ver}, expecting >= 1.40"
+                "Unsupported NetworkManager version {version}, expecting >= {min}"
             );
         }
+    } else {
+        log::warn!("Unknown NetworkManager version, expecting >= {min}");
     }
 }
 
