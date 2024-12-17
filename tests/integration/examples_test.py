@@ -116,11 +116,6 @@ def test_dns_edit(eth1_up):
 
 
 @pytest.mark.tier1
-@pytest.mark.skipif(
-    nm_minor_version() < 42,
-    reason="Loopback is only support on NM 1.42+, and blackhole type route "
-    "is stored in loopback",
-)
 def test_add_remove_routes(eth1_up):
     """
     Test adding a strict route and removing all routes next hop to eth1.
@@ -131,6 +126,24 @@ def test_add_remove_routes(eth1_up):
         assertlib.assert_state(desired_state)
 
     assertlib.assert_no_config_route_to_iface("eth1")
+
+
+@pytest.mark.tier1
+@pytest.mark.skipif(
+    nm_minor_version() < 42,
+    reason="Loopback is only support on NM 1.42+, and blackhole type route "
+    "is stored in loopback",
+)
+def test_add_remove_special_routes(eth1_up):
+    """
+    Test adding an special route and removing it.
+    """
+    with example_state(
+        "blackhole_add_route.yml", cleanup="blackhole_del_route.yml"
+    ):
+        pass
+
+    assertlib.assert_no_config_route_to_iface("lo")
 
 
 @pytest.mark.tier1
