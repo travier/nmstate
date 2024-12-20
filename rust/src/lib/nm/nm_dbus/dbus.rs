@@ -64,6 +64,10 @@ impl NmDbus<'_> {
         Ok(self.proxy.version()?)
     }
 
+    pub(crate) fn version_info(&self) -> Result<Vec<u32>, NmError> {
+        Ok(self.proxy.version_info()?)
+    }
+
     fn _checkpoint_create(
         &self,
         timeout: u32,

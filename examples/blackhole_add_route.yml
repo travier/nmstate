@@ -1,0 +1,5 @@
+---
+routes:
+  config:
+    - destination: 198.51.200.0/24
+      route-type: blackhole

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::convert::TryFrom;
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use log::debug;
@@ -29,6 +30,18 @@ pub struct NmApi<'a> {
     auto_cp_refresh: bool,
 }
 
+pub struct NmVersionInfo {
+    pub version_encoded: u32,
+    capabilities: Vec<u32>,
+}
+
+#[derive(Eq, PartialEq)]
+pub struct NmVersion {
+    pub major: u8,
+    pub minor: u8,
+    pub micro: u8,
+}
+
 impl NmApi<'_> {
     pub fn new() -> Result<Self, NmError> {
         Ok(Self {
@@ -50,8 +63,14 @@ impl NmApi<'_> {
         self.auto_cp_refresh = value;
     }
 
-    pub fn version(&self) -> Result<String, NmError> {
-        self.dbus.version()
+    pub fn version(&self) -> Result<NmVersion, NmError> {
+        self.dbus.version().and_then(|ver| ver.parse())
+    }
+
+    pub fn version_info(&self) -> Result<NmVersionInfo, NmError> {
+        self.dbus
+            .version_info()
+            .map(|version_info_arr| NmVersionInfo::from(&version_info_arr))
     }
 
     pub fn checkpoint_create(
@@ -432,6 +451,93 @@ impl NmApi<'_> {
                 format!("Interface {iface_name}/{nm_iface_type} not found"),
             ))
         }
+    }
+}
+
+impl NmVersionInfo {
+    pub const CAPABILITY_SYNC_ROUTE_WITH_TABLE: usize = 0;
+
+    fn from(ver_info_arr: &[u32]) -> Self {
+        Self {
+            version_encoded: *ver_info_arr.first().unwrap_or(&0),
+            capabilities: ver_info_arr[1..].to_vec(),
+        }
+    }
+
+    pub fn version(&self) -> NmVersion {
+        NmVersion {
+            major: ((self.version_encoded >> 16) & 0xFF) as u8,
+            minor: ((self.version_encoded >> 8) & 0xFF) as u8,
+            micro: (self.version_encoded & 0xFF) as u8,
+        }
+    }
+
+    pub fn has_capability(&self, cap: usize) -> bool {
+        let idx = cap / 32;
+        let bit = cap % 32;
+        match self.capabilities.get(idx) {
+            Some(chunk) => (*chunk & (1 << bit)) != 0,
+            None => false,
+        }
+    }
+}
+
+impl NmVersion {
+    pub fn new(major: u8, minor: u8, micro: u8) -> NmVersion {
+        NmVersion {
+            major,
+            minor,
+            micro,
+        }
+    }
+
+    pub fn encoded(&self) -> u32 {
+        ((self.major as u32) << 16)
+            | ((self.minor as u32) << 8)
+            | (self.micro as u32)
+    }
+}
+
+impl Ord for NmVersion {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.encoded().cmp(&other.encoded())
+    }
+}
+
+impl PartialOrd for NmVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl FromStr for NmVersion {
+    type Err = NmError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(ver) = s
+            .split('.')
+            .take(3)
+            .map(|v| v.parse::<u8>())
+            .collect::<Result<Vec<u8>, _>>()
+        {
+            if ver.len() == 3 {
+                return Ok(NmVersion {
+                    major: ver[0],
+                    minor: ver[1],
+                    micro: ver[2],
+                });
+            }
+        }
+        Err(NmError::new(
+            ErrorKind::InvalidArgument,
+            format!("Cannot parse version '{s}'"),
+        ))
+    }
+}
+
+impl std::fmt::Display for NmVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.micro)
     }
 }
 

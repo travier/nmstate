@@ -14,6 +14,9 @@ trait NetworkManager {
     fn version(&self) -> zbus::Result<String>;
 
     #[dbus_proxy(property)]
+    fn version_info(&self) -> zbus::Result<Vec<u32>>;
+
+    #[dbus_proxy(property)]
     fn active_connections(
         &self,
     ) -> zbus::Result<Vec<zvariant::OwnedObjectPath>>;
